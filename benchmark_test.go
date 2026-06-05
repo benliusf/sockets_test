@@ -79,18 +79,66 @@ func BenchmarkStreamingSockets(b *testing.B) {
 	if err != nil {
 		b.Fatal(err)
 	}
-	conn, err := net.Dial("unix", addr.String())
+	cl, err := net.Dial("unix", addr.String())
 	if err != nil {
 		b.Fatal(err)
 	}
-	defer func() { _ = conn.Close() }()
+	defer func() { _ = cl.Close() }()
 	b.Run("unix_streaming_socket", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
-			if _, err = conn.Write([]byte("ping")); err != nil {
+			if _, err = cl.Write([]byte("ping")); err != nil {
 				b.Fatal(err)
 			}
 			buf := make([]byte, 1024)
-			if n, err := conn.Read(buf); err != nil {
+			if n, err := cl.Read(buf); err != nil {
+				b.Fatal(err)
+			} else {
+				if !slices.Equal(buf[:n], []byte("pong")) {
+					b.Fatalf("wrong response %q", buf[:n])
+				}
+			}
+		}
+	})
+}
+
+func BenchmarkDatagramSockets(b *testing.B) {
+	dir, err := os.MkdirTemp("", "echo_unix")
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer func() {
+		if err := os.RemoveAll(dir); err != nil {
+			b.Error(err)
+		}
+	}()
+	ctx, cancel := context.WithCancel(context.Background())
+	sSocket := filepath.Join(dir, fmt.Sprintf("s%d.sock", os.Getpid()))
+	serverAddr, err := datagramEchoServer(ctx, "unixgram", sSocket)
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer cancel()
+	err = os.Chmod(sSocket, os.ModeSocket|0622)
+	if err != nil {
+		b.Fatal(err)
+	}
+	cSocket := filepath.Join(dir, fmt.Sprintf("c%d.sock", os.Getpid()))
+	cl, err := net.ListenPacket("unixgram", cSocket)
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer func() { _ = cl.Close() }()
+	err = os.Chmod(cSocket, os.ModeSocket|0622)
+	if err != nil {
+		b.Fatal(err)
+	}
+	b.Run("unix_datagram_socket", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			if _, err = cl.WriteTo([]byte("ping"), serverAddr); err != nil {
+				b.Fatal(err)
+			}
+			buf := make([]byte, 1024)
+			if n, _, err := cl.ReadFrom(buf); err != nil {
 				b.Fatal(err)
 			} else {
 				if !slices.Equal(buf[:n], []byte("pong")) {

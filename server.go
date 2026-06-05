@@ -56,8 +56,7 @@ func datagramEchoServer(ctx context.Context, network string, addr string) (net.A
 				return
 			}
 			_ = buf[:n]
-			_, err = s.WriteTo([]byte("pong"), clientAddr)
-			if err != nil {
+			if _, err = s.WriteTo([]byte("pong"), clientAddr); err != nil {
 				return
 			}
 		}
